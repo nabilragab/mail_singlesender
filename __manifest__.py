@@ -7,7 +7,8 @@
     'description': """
     This module removes multiple sender functionality and makes only one active email for sender
     set using System Parameters: 
-    single.sender.email = mail@server.com
+    single.sender.email.rfc = mail@server.com
+    single.sender.email = Company Name <mail@server.com>
     """,
     'depends': ['mail', 'base'],
 }

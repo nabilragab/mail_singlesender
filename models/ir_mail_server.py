@@ -55,7 +55,7 @@ class IrMailServer(models.Model):
                               "It should contain one valid plain ASCII email") % smtp_from
         # use last extracted email, to support rarities like 'Support@MyComp <support@mycompany.com>'
         # MODIFICATION HERE: self.single_sender_email_rfc
-        smtp_from = self.env["ir.config_parameter"].sudo().get_param("single.sender.email")
+        smtp_from = self.env["ir.config_parameter"].sudo().get_param("single.sender.email.rfc")
         email_to = message['To']
         email_cc = message['Cc']
         email_bcc = message['Bcc']
