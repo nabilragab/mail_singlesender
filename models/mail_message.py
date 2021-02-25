@@ -17,5 +17,5 @@ class Message(models.Model):
         if self.env.user.email:
             # MODIFICATION HERE
             return tools.formataddr((self.env.user.name,
-                                     self.env["ir.config_parameter"].sudo().get_param("single.sender.email")))
+                                     self.env["ir.config_parameter"].sudo().get_param("single.sender.email.rfc")))
         raise UserError(_("Unable to post message, please configure the sender's email address."))
