@@ -10,6 +10,7 @@ SMTP_TIMEOUT = 60
 
 class IrMailServer(models.Model):
     _inherit = "ir.mail_server"
+
     @api.model
     def send_email(self, message, mail_server_id=None, smtp_server=None, smtp_port=None,
                    smtp_user=None, smtp_password=None, smtp_encryption=None, smtp_debug=False,
@@ -54,8 +55,9 @@ class IrMailServer(models.Model):
         assert from_rfc2822, ("Malformed 'Return-Path' or 'From' address: %r - "
                               "It should contain one valid plain ASCII email") % smtp_from
         # use last extracted email, to support rarities like 'Support@MyComp <support@mycompany.com>'
-        # MODIFICATION HERE: self.single_sender_email_rfc
+        # TODO: MODIFICATION HERE: self.single_sender_email_rfc
         smtp_from = self.env["ir.config_parameter"].sudo().get_param("single.sender.email.rfc")
+        # smtp_from = from_rfc2822[-1]
         email_to = message['To']
         email_cc = message['Cc']
         email_bcc = message['Bcc']
@@ -99,3 +101,4 @@ class IrMailServer(models.Model):
             _logger.info(msg)
             raise MailDeliveryException(_("Mail Delivery Failed"), msg)
         return message_id
+

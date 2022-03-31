@@ -3,8 +3,6 @@ import logging
 import psycopg2
 import smtplib
 import re
-
-
 from odoo import models, _
 from odoo import tools
 from odoo.addons.base.models.ir_mail_server import MailDeliveryException
@@ -14,11 +12,9 @@ from odoo.tools.safe_eval import safe_eval
 _logger = logging.getLogger(__name__)
 
 
-# MODIFICATION HERE:
 class MailMail(models.Model):
     _inherit = 'mail.mail'
-    
-    # TODO: MODIFICATION HERE:
+
     def _send(self, auto_commit=False, raise_exception=False, smtp_session=None):
         IrMailServer = self.env['ir.mail_server']
         IrAttachment = self.env['ir.attachment']
@@ -59,12 +55,18 @@ class MailMail(models.Model):
                 headers = {}
                 ICP = self.env['ir.config_parameter'].sudo()
                 bounce_alias = ICP.get_param("mail.bounce.alias")
+                bounce_alias_static = tools.str2bool(ICP.get_param("mail.bounce.alias.static", "False"))
                 catchall_domain = ICP.get_param("mail.catchall.domain")
                 if bounce_alias and catchall_domain:
-                    headers['Return-Path'] = '%s@%s' % (bounce_alias, catchall_domain)
+                    if bounce_alias_static:
+                        headers['Return-Path'] = '%s@%s' % (bounce_alias, catchall_domain)
+                    elif mail.mail_message_id.is_thread_message():
+                        headers['Return-Path'] = '%s+%d-%s-%d@%s' % (bounce_alias, mail.id, mail.model, mail.res_id, catchall_domain)
+                    else:
+                        headers['Return-Path'] = '%s+%d@%s' % (bounce_alias, mail.id, catchall_domain)
                 if mail.headers:
                     try:
-                        headers.update(ast.literal_eval(mail.headers))
+                        headers.update(safe_eval(mail.headers))
                     except Exception:
                         pass
 
@@ -80,14 +82,14 @@ class MailMail(models.Model):
                 # mail record.
                 notifs = self.env['mail.notification'].search([
                     ('notification_type', '=', 'email'),
-                    ('mail_mail_id', 'in', mail.ids),
+                    ('mail_id', 'in', mail.ids),
                     ('notification_status', 'not in', ('sent', 'canceled'))
                 ])
                 if notifs:
                     notif_msg = _('Error without exception. Probably due do concurrent access update of notification records. Please see with an administrator.')
                     notifs.sudo().write({
                         'notification_status': 'exception',
-                        'failure_type': 'unknown',
+                        'failure_type': 'UNKNOWN',
                         'failure_reason': notif_msg,
                     })
                     # `test_mail_bounce_during_send`, force immediate update to obtain the lock.
@@ -96,9 +98,7 @@ class MailMail(models.Model):
 
                 # build an RFC2822 email.message.Message object and send it without queuing
                 res = None
-                # TDE note: could be great to pre-detect missing to/cc and skip sending it
-                # to go directly to failed state update
-                # TODO: MODIFICATION HERE:
+                # TODO: MODIFICATION HERE: email_from=mail.email_from
                 for email in email_list:
                     msg = IrMailServer.build_email(
                         email_from=self.env["ir.config_parameter"].sudo().get_param("single.sender.email"),
@@ -124,11 +124,7 @@ class MailMail(models.Model):
                         processing_pid = None
                     except AssertionError as error:
                         if str(error) == IrMailServer.NO_VALID_RECIPIENT:
-                            # if we have a list of void emails for email_list -> email missing, otherwise generic email failure
-                            if not email.get('email_to') and failure_type != "mail_email_invalid":
-                                failure_type = "mail_email_missing"
-                            else:
-                                failure_type = "mail_email_invalid"
+                            failure_type = "RECIPIENT"
                             # No valid recipient found for this particular
                             # mail item -> ignore error to avoid blocking
                             # delivery to next recipients, if any. If this is
@@ -137,7 +133,7 @@ class MailMail(models.Model):
                                          mail.message_id, email.get('email_to'))
                         else:
                             raise
-                if res:  # mail has been sent at least once, no major exception occurred
+                if res:  # mail has been sent at least once, no major exception occured
                     mail.write({'state': 'sent', 'message_id': res, 'failure_reason': False})
                     _logger.info('Mail with ID %r and Message-Id %r successfully sent', mail.id, mail.message_id)
                     # /!\ can't use mail.state here, as mail.refresh() will cause an error
@@ -162,14 +158,16 @@ class MailMail(models.Model):
                 failure_reason = tools.ustr(e)
                 _logger.exception('failed sending mail (id: %s) due to %s', mail.id, failure_reason)
                 mail.write({'state': 'exception', 'failure_reason': failure_reason})
-                mail._postprocess_sent_message(success_pids=success_pids, failure_reason=failure_reason, failure_type='unknown')
+                mail._postprocess_sent_message(success_pids=success_pids, failure_reason=failure_reason, failure_type='UNKNOWN')
                 if raise_exception:
                     if isinstance(e, (AssertionError, UnicodeEncodeError)):
                         if isinstance(e, UnicodeEncodeError):
                             value = "Invalid text: %s" % e.object
                         else:
+                            # get the args of the original error, wrap into a value and throw a MailDeliveryException
+                            # that is an except_orm, with name and value as arguments
                             value = '. '.join(e.args)
-                        raise MailDeliveryException(value)
+                        raise MailDeliveryException(_("Mail Delivery Failed"), value)
                     raise
 
             if auto_commit is True:
