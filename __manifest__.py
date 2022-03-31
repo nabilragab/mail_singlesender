@@ -10,5 +10,5 @@
     single.sender.email.rfc = mail@server.com
     single.sender.email = Company Name <mail@server.com>
     """,
-    'depends': ['mail', 'base'],
+    'depends': ['mail', 'base', 'base_setup'],
 }
