@@ -89,7 +89,22 @@ class IrMailServer(models.Model):
             smtp = smtp or self.connect(
                 smtp_server, smtp_port, smtp_user, smtp_password,
                 smtp_encryption, smtp_debug, mail_server_id=mail_server_id)
-            smtp.sendmail(smtp_from, smtp_to_list, message.as_string())
+
+            if sys.version_info < (3, 7, 4):
+                # header folding code is buggy and adds redundant carriage
+                # returns, it got fixed in 3.7.4 thanks to bpo-34424
+                message_str = message.as_string()
+                message_str = re.sub('\r+(?!\n)', '', message_str)
+
+                mail_options = []
+                if any((not is_ascii(addr) for addr in smtp_to_list + [smtp_from])):
+                    # non ascii email found, require SMTPUTF8 extension,
+                    # the relay may reject it
+                    mail_options.append("SMTPUTF8")
+                smtp.sendmail(smtp_from, smtp_to_list, message_str, mail_options=mail_options)
+            else:
+                smtp.send_message(message, smtp_from, smtp_to_list)
+
             # do not quit() a pre-established smtp_session
             if not smtp_session:
                 smtp.quit()
@@ -97,8 +112,28 @@ class IrMailServer(models.Model):
             raise
         except Exception as e:
             params = (ustr(smtp_server), e.__class__.__name__, ustr(e))
-            msg = _("Mail delivery failed via SMTP server '%s'.\n%s: %s") % params
+            msg = _("Mail delivery failed via SMTP server '%s'.\n%s: %s", *params)
             _logger.info(msg)
             raise MailDeliveryException(_("Mail Delivery Failed"), msg)
         return message_id
 
+    @api.model
+    def _get_default_from_address(self):
+        """Compute the default from address.
+
+        Used for the "header from" address when no other has been received.
+
+        :return str/None:
+            Combines config parameters ``mail.default.from`` and
+            ``mail.catchall.domain`` to generate a default sender address.
+
+            If some of those parameters is not defined, it will default to the
+            ``--email-from`` CLI/config parameter.
+        """
+        get_param = self.env['ir.config_parameter'].sudo().get_param
+        email_from = get_param("single.sender.email.rfc")
+
+        # TODO: MODIFICATION HERE: self.single_sender_email_rfc
+        if email_from:
+            return "%s" % email_from
+        return tools.config.get(", domainemail_from")

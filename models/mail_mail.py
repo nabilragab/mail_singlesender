@@ -1,3 +1,4 @@
+import ast
 import base64
 import logging
 import psycopg2
@@ -6,15 +7,12 @@ import re
 from odoo import models, _
 from odoo import tools
 from odoo.addons.base.models.ir_mail_server import MailDeliveryException
-from odoo.tools.safe_eval import safe_eval
-
 
 _logger = logging.getLogger(__name__)
 
 
 class MailMail(models.Model):
     _inherit = 'mail.mail'
-
 
     def _send(self, auto_commit=False, raise_exception=False, smtp_session=None):
         IrMailServer = self.env['ir.mail_server']
@@ -67,7 +65,7 @@ class MailMail(models.Model):
                         headers['Return-Path'] = '%s+%d@%s' % (bounce_alias, mail.id, catchall_domain)
                 if mail.headers:
                     try:
-                        headers.update(safe_eval(mail.headers))
+                        headers.update(ast.literal_eval(mail.headers))
                     except Exception:
                         pass
 
@@ -99,8 +97,8 @@ class MailMail(models.Model):
 
                 # build an RFC2822 email.message.Message object and send it without queuing
                 res = None
-                # TODO: MODIFICATION HERE: email_from=mail.email_from
                 for email in email_list:
+                    # TODO: MODIFICATION HERE: email_from=mail.email_from
                     msg = IrMailServer.build_email(
                         email_from=self.env["ir.config_parameter"].sudo().get_param("single.sender.email"),
                         email_to=email.get('email_to'),
@@ -165,10 +163,8 @@ class MailMail(models.Model):
                         if isinstance(e, UnicodeEncodeError):
                             value = "Invalid text: %s" % e.object
                         else:
-                            # get the args of the original error, wrap into a value and throw a MailDeliveryException
-                            # that is an except_orm, with name and value as arguments
                             value = '. '.join(e.args)
-                        raise MailDeliveryException(_("Mail Delivery Failed"), value)
+                        raise MailDeliveryException(value)
                     raise
 
             if auto_commit is True:
