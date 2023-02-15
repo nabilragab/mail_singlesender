@@ -18,7 +18,7 @@
                    'single.sender.email = Company Name <mail@server.com>',
     'summary': 'Mail Single Server',
     'category': 'Mail',
-    'version': '14.0.1.0.0',
+    'version': '15.0.1.0.0',
     'author': 'Nabil Mohamed Ali Ragab',
     'company': 'ROOK FZ LLC',
     'maintainer': 'ROOK FZ LLC',

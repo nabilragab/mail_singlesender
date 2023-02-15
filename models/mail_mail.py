@@ -54,15 +54,9 @@ class MailMail(models.Model):
                 headers = {}
                 ICP = self.env['ir.config_parameter'].sudo()
                 bounce_alias = ICP.get_param("mail.bounce.alias")
-                bounce_alias_static = tools.str2bool(ICP.get_param("mail.bounce.alias.static", "False"))
                 catchall_domain = ICP.get_param("mail.catchall.domain")
                 if bounce_alias and catchall_domain:
-                    if bounce_alias_static:
-                        headers['Return-Path'] = '%s@%s' % (bounce_alias, catchall_domain)
-                    elif mail.mail_message_id.is_thread_message():
-                        headers['Return-Path'] = '%s+%d-%s-%d@%s' % (bounce_alias, mail.id, mail.model, mail.res_id, catchall_domain)
-                    else:
-                        headers['Return-Path'] = '%s+%d@%s' % (bounce_alias, mail.id, catchall_domain)
+                    headers['Return-Path'] = '%s@%s' % (bounce_alias, catchall_domain)
                 if mail.headers:
                     try:
                         headers.update(ast.literal_eval(mail.headers))
@@ -81,14 +75,14 @@ class MailMail(models.Model):
                 # mail record.
                 notifs = self.env['mail.notification'].search([
                     ('notification_type', '=', 'email'),
-                    ('mail_id', 'in', mail.ids),
+                    ('mail_mail_id', 'in', mail.ids),
                     ('notification_status', 'not in', ('sent', 'canceled'))
                 ])
                 if notifs:
                     notif_msg = _('Error without exception. Probably due do concurrent access update of notification records. Please see with an administrator.')
                     notifs.sudo().write({
                         'notification_status': 'exception',
-                        'failure_type': 'UNKNOWN',
+                        'failure_type': 'unknown',
                         'failure_reason': notif_msg,
                     })
                     # `test_mail_bounce_during_send`, force immediate update to obtain the lock.
@@ -97,9 +91,12 @@ class MailMail(models.Model):
 
                 # build an RFC2822 email.message.Message object and send it without queuing
                 res = None
+                # TDE note: could be great to pre-detect missing to/cc and skip sending it
+                # to go directly to failed state update
+                # TODO: MODIFICATION HERE: email_from=mail.email_from
                 for email in email_list:
-                    # TODO: MODIFICATION HERE: email_from=mail.email_from
                     msg = IrMailServer.build_email(
+                        # email_from=mail.email_from,
                         email_from=self.env["ir.config_parameter"].sudo().get_param("single.sender.email"),
                         email_to=email.get('email_to'),
                         subject=mail.subject,
@@ -123,7 +120,11 @@ class MailMail(models.Model):
                         processing_pid = None
                     except AssertionError as error:
                         if str(error) == IrMailServer.NO_VALID_RECIPIENT:
-                            failure_type = "RECIPIENT"
+                            # if we have a list of void emails for email_list -> email missing, otherwise generic email failure
+                            if not email.get('email_to') and failure_type != "mail_email_invalid":
+                                failure_type = "mail_email_missing"
+                            else:
+                                failure_type = "mail_email_invalid"
                             # No valid recipient found for this particular
                             # mail item -> ignore error to avoid blocking
                             # delivery to next recipients, if any. If this is
@@ -132,7 +133,7 @@ class MailMail(models.Model):
                                          mail.message_id, email.get('email_to'))
                         else:
                             raise
-                if res:  # mail has been sent at least once, no major exception occured
+                if res:  # mail has been sent at least once, no major exception occurred
                     mail.write({'state': 'sent', 'message_id': res, 'failure_reason': False})
                     _logger.info('Mail with ID %r and Message-Id %r successfully sent', mail.id, mail.message_id)
                     # /!\ can't use mail.state here, as mail.refresh() will cause an error
@@ -157,7 +158,7 @@ class MailMail(models.Model):
                 failure_reason = tools.ustr(e)
                 _logger.exception('failed sending mail (id: %s) due to %s', mail.id, failure_reason)
                 mail.write({'state': 'exception', 'failure_reason': failure_reason})
-                mail._postprocess_sent_message(success_pids=success_pids, failure_reason=failure_reason, failure_type='UNKNOWN')
+                mail._postprocess_sent_message(success_pids=success_pids, failure_reason=failure_reason, failure_type='unknown')
                 if raise_exception:
                     if isinstance(e, (AssertionError, UnicodeEncodeError)):
                         if isinstance(e, UnicodeEncodeError):
@@ -170,3 +171,4 @@ class MailMail(models.Model):
             if auto_commit is True:
                 self._cr.commit()
         return True
+
