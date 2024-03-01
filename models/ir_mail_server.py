@@ -35,7 +35,7 @@ class IrMailServer(models.Model):
             return email_from
         domain = get_param("mail.catchall.domain")
         if email_from and domain:
-            return "%s" % email_from
+            return "%s@%s" % (email_from, domain)
         return tools.config.get("email_from")
 
     def _prepare_email_message(self, message, smtp_session):
